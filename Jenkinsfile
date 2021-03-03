@@ -15,7 +15,7 @@
 pipeline {
    agent any
    environment {
-     DOCKER_REGISTRY = "localhost:6000"  // Docker registry
+    DOCKER_REGISTRY = "localhost:6000"  // Docker registry
      VAULT_PATH_MYSQL="kv/mysql/db"
      MYSQL_STAGING_URL="stgmysqldb:3306"
      MYSQL_PRODUCTION_URL="prodmysqldb:3306"
@@ -69,7 +69,6 @@ pipeline {
                               docker build --no-cache -t "devsecops/app:staging" -f docker/app/Dockerfile .
                               docker tag "devsecops/app:staging" "${DOCKER_REGISTRY}/devsecops/app:staging"
                               docker push "${DOCKER_REGISTRY}/devsecops/app:staging"
-                              docker rmi "${DOCKER_REGISTRY}/devsecops/app:staging"
                               
                            '''
                         },
@@ -128,12 +127,11 @@ pipeline {
                      '''
                   },
                   DAST: {
-                     withCredentials([usernamePassword(credentialsId: 'archerysec', passwordVariable: 'ARCHERY_PASS', usernameVariable: 'ARCHERY_USER')]) {
-                     sh '''
-                        bash ${WORKSPACE}/scripts/zapscanner/zapscanner_cli.sh
-                     '''
-                     }
+                     echo 'Dynamic Application Security Testing'
                   },
+                  VA: {
+                     echo 'Vulnerability Assessment'
+                  }
                )
          }
       }
@@ -174,6 +172,18 @@ pipeline {
                      )
                }
       }
+      stage('Container Analysis') {
+         steps{
+               parallel(
+                  CAC: {
+                     echo 'Compliance as Code'
+                  },
+                  CS: {
+                     echo 'Container Scanning'
+                  }
+               )
+         }
+      }
       stage ('Production Deploy Approval') {
          steps {
          script {
@@ -192,6 +202,14 @@ pipeline {
                 -v /home/vagrant/logs:/usr/local/tomcat/logs --name prodapp ${DOCKER_REGISTRY}/devsecops/app:production
              '''
             }
+         }
+      }
+      stage('WAF') {
+         steps {
+             sh '''
+             export BHOST="`hostname -I | awk '{print $1}'`"
+             cd /home/vagrant/on-prem-lab/provisioning/production/WAF/ && docker-compose up -d
+             '''
          }
       }
    }
